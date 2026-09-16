@@ -19,7 +19,7 @@ const port = process.env.PORT || 8080;
 
 
 app.use(cors({
-  origin: process.env.VITE_URL,
+  origin: process.env.VITE_URL || "http://localhost:5173",
   credentials: true
 }));
 

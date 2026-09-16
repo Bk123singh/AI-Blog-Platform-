@@ -6,6 +6,13 @@ import main from "../config/groq.js";
 
 export const addBlog = async (req, res) => {
   try {
+    if (!req.body.blog) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
+      });
+    }
+
     const { title, subTitle, description, category, isPublished } = JSON.parse(
       req.body.blog
     );
@@ -49,6 +56,12 @@ export const addBlog = async (req, res) => {
       isPublished,
     });
 
+    if (imageFile.path && fs.existsSync(imageFile.path)) {
+      try {
+        fs.unlinkSync(imageFile.path);
+      } catch (e) {}
+    }
+
     return res.status(200).json({
       success: true,
       message: "Blog added successfully",
@@ -56,6 +69,12 @@ export const addBlog = async (req, res) => {
 
   } catch (error) {
     console.log(error); 
+
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {}
+    }
 
     return res.status(500).json({
       success: false,
@@ -70,13 +89,13 @@ export const getAllBlogs= async(req, res)=>{
     const blogs =await Blog.find({isPublished:true});
     res.json({
       success:true,
-      message: "Blog added successfully",
+      message: "Blogs fetched successfully",
       blogs
     })
   } catch (error) {
-    res.jons({
+    res.json({
       success:false,
-      message:message.error
+      message: error.message
     })
 
     

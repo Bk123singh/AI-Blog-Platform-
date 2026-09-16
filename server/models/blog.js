@@ -20,11 +20,11 @@ const blogSchema =new mongoose.Schema({
     },
     image:{
         type:String,
-        retuired:true
+        required:true
     },
     isPublished:{
         type:Boolean,
-        retuired:true
+        default:false
     }
 
 },{
