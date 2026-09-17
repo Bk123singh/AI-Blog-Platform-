@@ -2,32 +2,50 @@ import jwt from "jsonwebtoken";
 
 const auth = (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not defined in environment variables");
+      return res.status(500).json({
+        success: false,
+        message: "Server authentication configuration error",
+      });
+    }
+
+    const authHeader = req.headers.authorization || req.headers.token;
 
     if (!authHeader) {
       return res.status(401).json({
         success: false,
-        message: "No token provided",
+        message: "Access denied. No token provided",
       });
     }
 
-    //  Extract token from Bearer
-    const token = authHeader.split(" ")[1];
+    // Support both "Bearer <token>" and raw "<token>"
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : authHeader.trim();
 
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Invalid token",
+        message: "Access denied. Token is missing or malformed",
       });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
 
     next();
   } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({
+        success: false,
+        message: "Token has expired. Please login again",
+      });
+    }
+
     return res.status(401).json({
       success: false,
-      message: "Unauthorized",
+      message: "Invalid or unauthorized token",
     });
   }
 };
