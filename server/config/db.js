@@ -1,47 +1,69 @@
 import mongoose from "mongoose";
 import dns from "node:dns";
 
-// Use public DNS resolvers to prevent querySrv ENOTFOUND on Render, Vercel, and restricted networks
+// Configure DNS resolvers for SRV lookup resilience
 try {
-  dns.setServers(["8.8.8.8", "8.8.4.4"]);
+  dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 } catch (e) {
-  // Fall back silently if setServers is not permitted in the environment
+  // Fall back silently if setServers is not permitted
 }
 
 if (typeof dns.setDefaultResultOrder === "function") {
   dns.setDefaultResultOrder("ipv4first");
 }
 
+const LOCAL_MONGO_URI = "mongodb://127.0.0.1:27017/blog";
+
 const connectDB = async () => {
-  // Reuse existing connection if already connected (vital for serverless environments)
+  // Reuse existing connection if already connected (e.g. serverless)
   if (mongoose.connection.readyState >= 1) {
     return mongoose.connection;
   }
 
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const primaryUri = process.env.MONGODB_URI || process.env.MONGO_URI;
 
-  if (!uri) {
-    console.warn(
-      "⚠️  MONGODB_URI is not defined in environment variables. Please check your .env configuration."
-    );
-    return null;
+  if (primaryUri) {
+    try {
+      console.log("Connecting to MongoDB Atlas...");
+      const conn = await mongoose.connect(primaryUri, {
+        serverSelectionTimeoutMS: 5000, // 5s timeout instead of hanging 30s
+      });
+      console.log(`✅ MongoDB Atlas connected successfully: (${conn.connection.host})`);
+      return conn;
+    } catch (primaryErr) {
+      console.warn(
+        `⚠️  Primary MongoDB connection failed (${primaryErr.message}).`
+      );
+      if (
+        primaryErr.code === "ENOTFOUND" ||
+        primaryErr.syscall === "querySrv" ||
+        primaryErr.message.includes("buffering timed out") ||
+        primaryErr.message.includes("ECONNREFUSED")
+      ) {
+        console.warn(
+          "ℹ️  The MongoDB Atlas cluster domain was not found or is paused. Checking local MongoDB..."
+        );
+      }
+    }
+  } else {
+    console.warn("⚠️  MONGODB_URI is not defined in environment variables.");
   }
 
+  // Automatic Local MongoDB Fallback
   try {
-    const conn = await mongoose.connect(uri);
-    console.log(`Database connected successfully: (${conn.connection.host})`);
-    return conn;
-  } catch (error) {
-    console.error("Database connection failed:", error.message);
-    if (error.code === "ENOTFOUND" || error.syscall === "querySrv") {
-      console.error(
-        "DNS SRV lookup failed for the MongoDB Atlas cluster. Please check that:\n" +
-          "1. In MongoDB Atlas, your cluster is active (not paused or deleted).\n" +
-          "2. The cluster hostname in MONGODB_URI matches your current Atlas cluster.\n" +
-          "3. Any special characters in the database password are URL-encoded.\n" +
-          "4. If your network blocks SRV records, use the standard (non-SRV) connection string from Atlas."
-      );
-    }
+    console.log(`Attempting fallback to local MongoDB (${LOCAL_MONGO_URI})...`);
+    const localConn = await mongoose.connect(LOCAL_MONGO_URI, {
+      serverSelectionTimeoutMS: 3000,
+    });
+    console.log(
+      `✅ Connected to local MongoDB successfully (${localConn.connection.host})`
+    );
+    return localConn;
+  } catch (localErr) {
+    console.error(
+      "❌ All MongoDB connection attempts failed. Database is offline.",
+      localErr.message
+    );
     return null;
   }
 };

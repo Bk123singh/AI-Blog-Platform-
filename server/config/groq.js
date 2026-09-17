@@ -5,11 +5,13 @@ const main = async (prompt) => {
     throw new Error("GROQ_API_KEY is not configured in environment variables");
   }
 
+  const model = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
+
   try {
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama-3.1-8b-instant",
+        model,
         messages: [
           {
             role: "system",
