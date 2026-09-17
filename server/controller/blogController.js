@@ -7,76 +7,103 @@ import main from "../config/groq.js";
 
 export const addBlog = async (req, res) => {
   try {
-    if (!req.body.blog) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing blog payload",
-      });
-    }
+    let parsedBlog = {};
 
-    let parsedBlog;
-    try {
-      parsedBlog =
-        typeof req.body.blog === "string"
-          ? JSON.parse(req.body.blog)
-          : req.body.blog;
-    } catch (parseErr) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid JSON format for blog data",
-      });
+    if (req.body?.blog) {
+      if (typeof req.body.blog === "string") {
+        try {
+          parsedBlog = JSON.parse(req.body.blog);
+        } catch (parseErr) {
+          // If JSON.parse fails, fall back to req.body
+          parsedBlog = req.body;
+        }
+      } else {
+        parsedBlog = req.body.blog;
+      }
+    } else {
+      parsedBlog = req.body || {};
     }
 
     const { title, subTitle, description, category, isPublished } =
       parsedBlog || {};
     const imageFile = req.file;
 
-    // Validate all required fields
-    if (
-      !title?.trim() ||
-      !subTitle?.trim() ||
-      !description?.trim() ||
-      !category?.trim() ||
-      !imageFile
-    ) {
+    // Validate essential fields with precise error messaging
+    if (!title || !String(title).trim()) {
       return res.status(400).json({
         success: false,
-        message:
-          "All fields (title, subTitle, description, category, and image) are required",
+        message: "Blog title is required",
       });
     }
 
-    // Verify ImageKit is configured before attempting upload
-    if (!isImageKitConfigured()) {
-      return res.status(500).json({
+    if (!description || !String(description).trim()) {
+      return res.status(400).json({
         success: false,
-        message:
-          "ImageKit service is not configured. Please set IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, and IMAGEKIT_URL_ENDPOINT in .env",
+        message: "Blog description is required",
       });
     }
 
-    // Upload directly from memory buffer (zero temporary disk files)
-    const uploadResponse = await imageKit.upload({
-      file: imageFile.buffer,
-      fileName: imageFile.originalname || `blog_${Date.now()}`,
-      folder: "/blogs",
-    });
+    if (!imageFile) {
+      return res.status(400).json({
+        success: false,
+        message: "Blog thumbnail image is required. Please select an image file.",
+      });
+    }
 
-    const optimizedImageUrl = imageKit.url({
-      path: uploadResponse.filePath,
-      transformation: [
-        { quality: "auto" },
-        { format: "webp" },
-        { width: "1280" },
-      ],
-    });
+    // Default subTitle if empty (fallback to title) so Mongoose schema required: true is satisfied
+    const finalSubTitle =
+      subTitle && String(subTitle).trim()
+        ? String(subTitle).trim()
+        : String(title).trim();
+
+    // Default category if empty
+    const finalCategory =
+      category && String(category).trim()
+        ? String(category).trim()
+        : "General";
+
+    let finalImageUrl = "";
+
+    // Upload to ImageKit if configured with real keys; otherwise fallback to base64 data URI
+    if (isImageKitConfigured()) {
+      try {
+        const uploadResponse = await imageKit.upload({
+          file: imageFile.buffer,
+          fileName: imageFile.originalname || `blog_${Date.now()}`,
+          folder: "/blogs",
+        });
+
+        finalImageUrl = imageKit.url({
+          path: uploadResponse.filePath,
+          transformation: [
+            { quality: "auto" },
+            { format: "webp" },
+            { width: "1280" },
+          ],
+        });
+      } catch (uploadError) {
+        console.warn(
+          "ImageKit upload failed, falling back to base64 data URI:",
+          uploadError.message
+        );
+        const mime = imageFile.mimetype || "image/jpeg";
+        finalImageUrl = `data:${mime};base64,${imageFile.buffer.toString("base64")}`;
+      }
+    } else {
+      // In development or when ImageKit keys are placeholders in .env, fallback to base64
+      console.log(
+        "ImageKit not configured with production credentials. Storing image as data URI."
+      );
+      const mime = imageFile.mimetype || "image/jpeg";
+      finalImageUrl = `data:${mime};base64,${imageFile.buffer.toString("base64")}`;
+    }
 
     const newBlog = await Blog.create({
-      title: title.trim(),
-      subTitle: subTitle.trim(),
-      description: description.trim(),
-      category: category.trim(),
-      image: optimizedImageUrl,
+      title: String(title).trim(),
+      subTitle: finalSubTitle,
+      description: String(description).trim(),
+      category: finalCategory,
+      image: finalImageUrl,
       isPublished: Boolean(isPublished),
     });
 

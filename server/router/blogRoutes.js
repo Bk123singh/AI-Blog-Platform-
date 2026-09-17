@@ -14,8 +14,8 @@ import auth from "../middleware/auth.js";
 
 const blogRouter = express.Router();
 
-// Blog CRUD endpoints
-blogRouter.post("/add", auth, upload.single("image"), addBlog);
+// Blog CRUD endpoints (upload runs first to stream multipart data, then auth verifies the token)
+blogRouter.post("/add", upload.single("image"), auth, addBlog);
 blogRouter.get("/all", getAllBlogs);
 blogRouter.get("/:blogId", getBlogId);
 blogRouter.post("/delete", auth, deleteBlogById);
